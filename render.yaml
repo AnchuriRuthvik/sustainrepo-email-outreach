@@ -2,9 +2,10 @@ services:
   - type: cron
     name: sustainrepo-outreach-sender
     runtime: python
-    # Every 10 minutes, 10:30-17:30 IST (05:00-11:59 UTC), Monday to Friday.
-    # The sender itself checks the exact sending window from the Settings tab.
-    schedule: "*/10 5-11 * * 1-5"
+    # Every 10 minutes, 09:30-17:29 IST (04:00-11:59 UTC), Monday to Friday.
+    # The sender itself only sends inside the window set on the Settings tab
+    # (currently 10:00-13:00 IST); the other runs just check the inbox.
+    schedule: "*/10 4-11 * * 1-5"
     buildCommand: pip install -r requirements.txt
     startCommand: python -m outreach.main
     envVars:
