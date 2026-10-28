@@ -18,6 +18,10 @@ BOUNCE_FROM = re.compile(r"mailer-daemon|postmaster|mail delivery|maildelivery|m
 BOUNCE_SUBJECT = re.compile(
     r"undeliver|delivery status notification|delivery (has )?failed|failure notice|returned mail|"
     r"could not be delivered|mail delivery failed|delivery failure|non[- ]?delivery", re.I)
+CALENDAR_SUBJECT = re.compile(
+    r"^\s*(invitation|updated invitation|canceled event|cancelled event|accepted|declined|tentatively accepted|"
+    r"new event|event (updated|canceled|cancelled))\b", re.I)
+NO_REPLY = re.compile(r"^(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|calendar-notification)@", re.I)
 AUTO_SUBJECT = re.compile(r"automatic reply|auto[- ]?reply|out of (the )?office|on leave|autoreply", re.I)
 OPT_OUT = re.compile(r"\b(opt[\s-]?out|unsubscribe|remove me|stop emailing|do not (email|contact)|"
                      r"not interested,? please remove)\b", re.I)
@@ -76,6 +80,12 @@ def _new_text(body: str) -> str:
     return "\n".join(lines)
 
 
+def _is_calendar(msg: Message, subject: str) -> bool:
+    if CALENDAR_SUBJECT.search(subject):
+        return True
+    return any(part.get_content_type() == "text/calendar" for part in msg.walk())
+
+
 def classify(msg: Message, contacted: set[str], own_address: str) -> InboxEvent | None:
     sender = parseaddr(msg.get("From", ""))[1].lower()
     subject = _decode(msg.get("Subject"))
@@ -83,18 +93,22 @@ def classify(msg: Message, contacted: set[str], own_address: str) -> InboxEvent 
         when = parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None
     except (TypeError, ValueError):
         when = None
+    own_domain = own_address.lower().rsplit("@", 1)[-1]
     if sender == own_address.lower():
         return None
     body = _text_of(msg)
 
     if BOUNCE_FROM.search(sender) or BOUNCE_SUBJECT.search(subject):
         found = {a.lower() for a in ADDR_RE.findall(body)}
-        hit = sorted(found & contacted)
+        hit = sorted(a for a in found & contacted if not a.endswith("@" + own_domain))
         if hit:
             return InboxEvent("bounce", hit, when, subject, "delivery failure")
         return None
 
-    if sender not in contacted:
+    # Only people we emailed count. Colleagues on our own domain, no-reply senders and
+    # calendar invitations are never replies.
+    if sender not in contacted or sender.endswith("@" + own_domain) or NO_REPLY.search(sender) \
+            or _is_calendar(msg, subject):
         return None
     auto = (msg.get("Auto-Submitted", "").lower() not in ("", "no")) or AUTO_SUBJECT.search(subject) \
         or msg.get("X-Autoreply") or msg.get("X-Autorespond")

@@ -61,3 +61,16 @@ def test_built_message_has_text_html_signature_optout_and_unsubscribe():
     assert plain.count("Thanks & Regards") == 1 and "Director | SustainRepo" in plain and "opt out" in plain
     assert "<html>" in html and "Body line." in html
     assert list(m.iter_attachments()) == []
+
+
+def test_colleagues_noreply_and_calendar_are_ignored():
+    from email.message import EmailMessage
+    from outreach.inbox import classify
+    contacted = {"somil@sustainrepo.com", "noreply@x.com", "a@client.com"}
+    def mk(frm, subj, body="Thanks, interested"):
+        m = EmailMessage(); m["From"] = frm; m["Subject"] = subj; m.set_content(body); return m
+    own = "ruthvik@sustainrepo.com"
+    assert classify(mk("somil@sustainrepo.com", "Re: proposal"), contacted, own) is None
+    assert classify(mk("noreply@x.com", "Hello"), contacted, own) is None
+    assert classify(mk("a@client.com", "Invitation: Call @ Tue"), contacted, own) is None
+    assert classify(mk("a@client.com", "Re: ESG reporting"), contacted, own).kind == "reply"
