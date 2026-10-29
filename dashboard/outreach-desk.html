@@ -66,6 +66,8 @@ section.view{display:grid;gap:14px}
 .frow .bar i.g{background:var(--green)}
 .frow .n{font-family:var(--f-mono);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
 .split{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.reviews{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+@media (max-width:760px){.reviews{grid-template-columns:1fr}}
 .card{border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:10px;background:var(--panel);min-width:0}
 .card.approved{border-left:4px solid var(--good)} .card.held{border-left:4px solid var(--warn)}
 .card .head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;justify-content:space-between}
@@ -151,7 +153,7 @@ label.f{display:grid;gap:4px;font-size:.85rem;color:var(--ink-soft)}
       </select>
       <button class="btn" id="approveAllBtn" type="button">Approve all shown</button>
     </div>
-    <div class="split" id="reviewList"><div class="empty">Reading drafted emails…</div></div>
+    <div class="reviews" id="reviewList"><div class="empty">Reading drafted emails…</div></div>
   </section>
 
   <section class="view" id="view-activity" hidden>
