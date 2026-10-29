@@ -159,3 +159,18 @@ def test_first_name():
     assert rules.first_name("Iti Goyal") == "Iti"
     assert rules.first_name("CS Jain") == "there"
     assert rules.first_name("") == "there"
+
+
+def test_dry_runs_count_as_sends_in_test_mode():
+    from datetime import date, datetime
+    from outreach import rules
+    today = date(2026, 10, 29)
+    ctx = rules.Context()
+    act = [["Time", "Type", "Email", "Company", "Detail"],
+           ["2026-10-29 12:10", "dry-run", "Saurabh@ShoppersStop.com", "Shoppers Stop", "would send 'x' (valid, contacts row 40)"],
+           ["2026-10-29 12:20", "dry-run", "a@cap.com", "Capillary", "would send 'y' (catchall, contacts row 9)"],
+           ["2026-10-28 12:20", "dry-run", "old@x.com", "X", "would send 'z' (valid, contacts row 3)"],
+           ["2026-10-29 12:30", "sent", "b@y.com", "Y", "real"]]
+    assert rules.add_dry_runs(ctx, act, today) == 2
+    assert ctx.sent_today == 2 and ctx.catchall_sent_today == 1 and ctx.last_send_was_catchall
+    assert "saurabh@shoppersstop.com" in ctx.sent_log and "old@x.com" not in ctx.sent_log
