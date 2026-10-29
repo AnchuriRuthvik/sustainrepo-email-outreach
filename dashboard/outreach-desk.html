@@ -115,8 +115,8 @@ label.f{display:grid;gap:4px;font-size:.85rem;color:var(--ink-soft)}
   <div class="strip" id="strip">
     <div class="stat"><span class="k">Sent today</span><span class="v" id="sSent">–</span><span class="s" id="sCap">daily cap –</span><div class="meter"><i id="sMeter" style="width:0"></i></div></div>
     <div class="stat"><span class="k">Ready to send</span><span class="v" id="sReady">–</span><span class="s">approved, checked, not yet sent</span></div>
-    <div class="stat"><span class="k">Waiting for review</span><span class="v" id="sReview">–</span><span class="s">companies with a drafted email</span></div>
-    <div class="stat"><span class="k">Replies</span><span class="v" id="sReplies">–</span><span class="s" id="sBounces">bounces –</span></div>
+    <div class="stat"><span class="k">Replies</span><span class="v" id="sReplies">–</span><span class="s" id="sReplyRate">reply rate –</span></div>
+    <div class="stat"><span class="k">Bounce rate</span><span class="v" id="sBounce">–</span><span class="s" id="sBounceNote">keep under 2%</span></div>
   </div>
 
   <nav class="tabs" role="tablist" aria-label="Sections">
@@ -292,6 +292,12 @@ function model() {
   const sentToday = contacts.filter(x => isSent(x.sent) && x.sent.includes(today)).length + bulk.filter(x => isSent(x.sent) && x.sent.includes(today)).length;
   const replies = [...contacts.filter(x => x.replied).map(x => ({ ...x, src: "Listed" })), ...bulk.filter(x => x.replied).map(x => ({ ...x, src: "Bulk list" }))];
   const bounces = (D.dne || []).slice(1).filter(r => low(c(r,1)).startsWith("bounce")).length;
+  // Outreach health: bounces and replies among the cold emails actually sent from this system.
+  const bouncedSet = new Set((D.dne || []).slice(1).filter(r => low(c(r,1)).startsWith("bounce")).map(r => low(c(r,0))));
+  const sentRows = [...contacts.filter(x => isSent(x.sent)), ...bulk.filter(x => isSent(x.sent))];
+  const sentTotal = sentRows.length;
+  const bouncedSent = sentRows.filter(x => bouncedSet.has(low(x.email))).length;
+  const repliedSent = sentRows.filter(x => x.replied).length;
   const readyCount = groups.filter(g => g.state === "approved").reduce((n, g) => n + g.ready.length, 0);
 
   const withEmail = contacts.filter(x => x.email);
@@ -313,7 +319,7 @@ function model() {
     ["Do not email", (D.dne || []).length - 1 > 0 ? (D.dne.length - 1) : 0],
     ["Sent log (all-time recipients)", sentLog.size],
   ];
-  return { groups, sentToday, replies, bounces, readyCount, funnel, sources };
+  return { groups, sentToday, replies, bounces, readyCount, funnel, sources, sentTotal, bouncedSent, repliedSent };
 }
 
 /* ── render ───────────────────────────────────────────────────────────── */
@@ -330,8 +336,16 @@ function render() {
   $("sMeter").style.width = Math.min(100, Math.round(M.sentToday / cap * 100)) + "%";
   $("sReady").textContent = M.readyCount;
   const pending = M.groups.filter(g => g.state === "pending").length;
-  $("sReview").textContent = pending; $("reviewCount").textContent = pending ? pending : "";
-  $("sReplies").textContent = M.replies.length; $("sBounces").textContent = "bounces " + M.bounces;
+  $("reviewCount").textContent = pending ? pending : "";
+  const pct = (n, d) => d ? (Math.round(n / d * 1000) / 10) + "%" : "–";
+  $("sReplies").textContent = M.replies.length;
+  $("sReplyRate").textContent = M.sentTotal ? `reply rate ${pct(M.repliedSent, M.sentTotal)} of ${M.sentTotal} sent` : "reply rate: nothing sent yet";
+  const br = M.sentTotal ? M.bouncedSent / M.sentTotal : 0;
+  $("sBounce").textContent = pct(M.bouncedSent, M.sentTotal);
+  $("sBounce").style.color = !M.sentTotal ? "" : br > 0.03 ? "var(--bad)" : br > 0.02 ? "var(--warn)" : "var(--good)";
+  $("sBounceNote").textContent = M.sentTotal
+    ? `${M.bouncedSent} of ${M.sentTotal} sent · ${br > 0.03 ? "too high: pause and check" : br > 0.02 ? "watch closely" : "healthy, keep under 2%"}`
+    : "keep under 2%";
 
   const max = Math.max(1, ...M.funnel.map(f => f[1]));
   $("funnel").innerHTML = M.funnel.map(([label, n, g]) =>
