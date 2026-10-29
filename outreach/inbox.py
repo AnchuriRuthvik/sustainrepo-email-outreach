@@ -86,7 +86,36 @@ def _is_calendar(msg: Message, subject: str) -> bool:
     return any(part.get_content_type() == "text/calendar" for part in msg.walk())
 
 
-def classify(msg: Message, contacted: set[str], own_address: str) -> InboxEvent | None:
+def _is_bounce(sender: str, subject: str) -> bool:
+    return bool(BOUNCE_FROM.search(sender) or BOUNCE_SUBJECT.search(subject))
+
+
+def _skip_sender(sender: str, subject: str, outreach: set[str], own_domain: str) -> bool:
+    """True when the mail can never be an outreach reply (decided from headers only)."""
+    return (sender not in outreach or sender.endswith("@" + own_domain) or bool(NO_REPLY.search(sender))
+            or bool(CALENDAR_SUBJECT.search(subject)))
+
+
+def needs_body(headers: Message, outreach: set[str], own_address: str) -> bool:
+    """Decide from the From and Subject headers alone whether the full email must be opened.
+
+    Only bounce notices and mail from people we cold-emailed are opened. Everything else
+    (clients, partners, colleagues, newsletters, invites) is never downloaded.
+    """
+    sender = parseaddr(headers.get("From", ""))[1].lower()
+    subject = _decode(headers.get("Subject"))
+    own = own_address.lower()
+    if sender == own:
+        return False
+    if _is_bounce(sender, subject):
+        return True
+    return not _skip_sender(sender, subject, outreach, own.rsplit("@", 1)[-1])
+
+
+def classify(msg: Message, contacted: set[str], own_address: str,
+             bounce_list: set[str] | None = None) -> InboxEvent | None:
+    """contacted = people we cold-emailed (outreach); bounce_list = every address we ever emailed."""
+    bounce_list = contacted if bounce_list is None else bounce_list
     sender = parseaddr(msg.get("From", ""))[1].lower()
     subject = _decode(msg.get("Subject"))
     try:
@@ -98,17 +127,16 @@ def classify(msg: Message, contacted: set[str], own_address: str) -> InboxEvent 
         return None
     body = _text_of(msg)
 
-    if BOUNCE_FROM.search(sender) or BOUNCE_SUBJECT.search(subject):
+    if _is_bounce(sender, subject):
         found = {a.lower() for a in ADDR_RE.findall(body)}
-        hit = sorted(a for a in found & contacted if not a.endswith("@" + own_domain))
+        hit = sorted(a for a in found & bounce_list if not a.endswith("@" + own_domain))
         if hit:
             return InboxEvent("bounce", hit, when, subject, "delivery failure")
         return None
 
     # Only people we emailed count. Colleagues on our own domain, no-reply senders and
     # calendar invitations are never replies.
-    if sender not in contacted or sender.endswith("@" + own_domain) or NO_REPLY.search(sender) \
-            or _is_calendar(msg, subject):
+    if _skip_sender(sender, subject, contacted, own_domain) or _is_calendar(msg, subject):
         return None
     auto = (msg.get("Auto-Submitted", "").lower() not in ("", "no")) or AUTO_SUBJECT.search(subject) \
         or msg.get("X-Autoreply") or msg.get("X-Autorespond")
@@ -117,7 +145,8 @@ def classify(msg: Message, contacted: set[str], own_address: str) -> InboxEvent 
     typed = _new_text(body)
     if OPT_OUT.search(typed) or OPT_OUT.search(subject):
         return InboxEvent("opt-out", [sender], when, subject, "asked not to be contacted")
-    return InboxEvent("reply", [sender], when, subject, typed.strip()[:200])
+    # The reply's text is never stored: only that a reply arrived.
+    return InboxEvent("reply", [sender], when, subject, "reply received")
 
 
 def _uids_after(imap: imaplib.IMAP4_SSL, last_uid: int | None, since_days: int) -> list[int]:
@@ -133,8 +162,14 @@ def _uids_after(imap: imaplib.IMAP4_SSL, last_uid: int | None, since_days: int) 
     return [u for u in uids if not last_uid or u > last_uid]
 
 
+HEADER_FIELDS = "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
+
+
 def read_inbox(host: str, user: str, password: str, last_uid: int | None, contacted: set[str],
-               first_run_days: int = 21, max_messages: int = 300) -> tuple[list[InboxEvent], int | None]:
+               first_run_days: int = 21, max_messages: int = 300,
+               bounce_list: set[str] | None = None) -> tuple[list[InboxEvent], int | None]:
+    """Read new inbox mail read-only. Only From/Subject/Date are fetched for every email; the full
+    email is downloaded only for bounce notices and mail from people we cold-emailed."""
     events: list[InboxEvent] = []
     newest = last_uid
     with imaplib.IMAP4_SSL(host, 993, timeout=30) as imap:
@@ -142,11 +177,17 @@ def read_inbox(host: str, user: str, password: str, last_uid: int | None, contac
         imap.select("INBOX", readonly=True)
         uids = _uids_after(imap, last_uid, first_run_days)[-max_messages:]
         for uid in uids:
+            newest = max(newest or 0, uid)
+            status, data = imap.uid("fetch", str(uid), HEADER_FIELDS)
+            if status != "OK" or not data or not isinstance(data[0], tuple):
+                continue
+            if not needs_body(email.message_from_bytes(data[0][1]), contacted, user):
+                continue
             status, data = imap.uid("fetch", str(uid), "(BODY.PEEK[])")
             if status != "OK" or not data or not isinstance(data[0], tuple):
                 continue
             msg = email.message_from_bytes(data[0][1])
-            ev = classify(msg, contacted, user)
+            ev = classify(msg, contacted, user, bounce_list)
             if ev:
                 events.append(ev)
             newest = max(newest or 0, uid)

@@ -13,7 +13,11 @@ which edits the same sheet).
 1. Reads the sheet.
 2. About once an hour, reads the mailbox:
    - copies every recipient in the GoDaddy Sent folder to the **Sent log** tab (first run imports the full history);
-   - finds replies (marks **Replied**), opt-outs and bounces (adds them to **Do not email**), and ignores auto-replies.
+   - reads only the sender and subject of each new inbox email; the full email is opened only for bounce
+     notices and for people who were cold-emailed (Contacts or Bulk list rows marked sent). Clients, partners,
+     colleagues, newsletters and calendar invites are never opened;
+   - marks **Replied** (no reply text is stored, only that a reply arrived), adds opt-outs and bounces to
+     **Do not email**, and ignores auto-replies. Everything is read-only: nothing is deleted, moved or marked read.
 3. Decides at random whether this run sends, so sends spread naturally over the day and reach the daily cap.
 4. Picks the next row that is approved, verified (valid or catch-all), drafted, not already emailed, not on
    Do not email, and whose company has not replied, following these rules from the **Settings** tab:

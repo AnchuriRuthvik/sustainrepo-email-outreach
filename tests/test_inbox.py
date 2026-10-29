@@ -74,3 +74,28 @@ def test_colleagues_noreply_and_calendar_are_ignored():
     assert classify(mk("noreply@x.com", "Hello"), contacted, own) is None
     assert classify(mk("a@client.com", "Invitation: Call @ Tue"), contacted, own) is None
     assert classify(mk("a@client.com", "Re: ESG reporting"), contacted, own).kind == "reply"
+
+
+def test_reply_text_is_never_stored():
+    ev = inbox.classify(msg("iti.goyal@shardamotor.com", "Re: BRSR", "Our budget is 10 lakh, call me."), CONTACTED, ME)
+    assert ev.kind == "reply" and "lakh" not in ev.detail
+
+
+def test_only_bounces_and_outreach_mail_are_opened():
+    from email.message import Message
+    def hdr(frm, subj):
+        h = Message(); h["From"] = frm; h["Subject"] = subj; return h
+    assert inbox.needs_body(hdr("iti.goyal@shardamotor.com", "Re: BRSR"), CONTACTED, ME)
+    assert inbox.needs_body(hdr("MAILER-DAEMON@x.net", "Undelivered Mail"), CONTACTED, ME)
+    assert not inbox.needs_body(hdr("client@bigco.com", "Invoice attached"), CONTACTED, ME)
+    assert not inbox.needs_body(hdr("somil@sustainrepo.com", "Re: proposal"), CONTACTED, ME)
+    assert not inbox.needs_body(hdr("iti.goyal@shardamotor.com", "Invitation: Call @ Tue"), CONTACTED, ME)
+
+
+def test_bounce_matches_any_address_ever_emailed():
+    everyone = CONTACTED | {"partner@firm.com"}
+    ev = inbox.classify(msg("MAILER-DAEMON@x.net", "Undeliverable: hi", "550 partner@firm.com unknown"),
+                        CONTACTED, ME, everyone)
+    assert ev.kind == "bounce" and ev.emails == ["partner@firm.com"]
+    # but a partner's normal mail is not an outreach reply
+    assert inbox.classify(msg("partner@firm.com", "Re: deal", "ok"), CONTACTED, ME, everyone) is None
